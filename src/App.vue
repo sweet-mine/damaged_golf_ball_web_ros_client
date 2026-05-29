@@ -78,11 +78,15 @@
       </div>
     </div>
   </div>
+
+  <!-- Global Floating AI Chat -->
+  <FloatingChat />
 </template>
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
 import { useGolfbotStore } from './stores/golfbot';
+import FloatingChat from './components/FloatingChat.vue';
 
 const store = useGolfbotStore();
 
