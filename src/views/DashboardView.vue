@@ -72,7 +72,7 @@
   </section>
 
   <!-- Navigation Modal -->
-  <div class="modal-overlay" v-if="isNavModalOpen" @click.self="isNavModalOpen = false">
+  <div class="nav-modal-overlay" v-if="isNavModalOpen" @click.self="isNavModalOpen = false">
     <div class="modal-content product-tile-light">
       <div class="modal-header">
         <h2 class="card-title">Select Navigation Target</h2>
@@ -314,14 +314,13 @@ const sendNavCommand = async (x, y) => {
 }
 
 /* Modal Styles */
-.modal-overlay {
+.nav-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
   background-color: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(20px);
   z-index: 1000;
   display: flex;
   align-items: center;

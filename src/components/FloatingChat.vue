@@ -5,24 +5,40 @@
       <div v-if="isOpen" class="chat-window">
         <!-- Header -->
         <div class="chat-header">
-          <div class="header-title-group">
-            <span class="header-status-indicator" :class="{ 'is-active': store.isConnected }"></span>
-            <div class="header-text">
-              <span class="header-title">Golfbot AI 어시스턴트</span>
-              <span class="header-subtitle">실시간 로봇 시스템 및 대화 진단</span>
+          <template v-if="!showClearConfirm">
+            <div class="header-title-group">
+              <span class="header-status-indicator" :class="{ 'is-active': store.isConnected }"></span>
+              <div class="header-text">
+                <span class="header-title">Golfbot AI 어시스턴트</span>
+                <span class="header-subtitle">실시간 로봇 시스템 및 대화 진단</span>
+              </div>
             </div>
-          </div>
-          <div class="header-actions">
-            <button 
-              class="header-action-btn" 
-              @click="handleClearHistory" 
-              title="대화 기록 초기화"
-              v-if="store.chatMessages.length > 0"
-            >
-              🧹
-            </button>
-            <button class="close-btn" @click="toggleChat">×</button>
-          </div>
+            <div class="header-actions">
+              <button 
+                class="header-action-btn" 
+                @click="showClearConfirm = true" 
+                title="대화 기록 초기화"
+                v-if="store.chatMessages.length > 0"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  <line x1="10" y1="11" x2="10" y2="17"></line>
+                  <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+              </button>
+              <button class="close-btn" @click="toggleChat">×</button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="confirm-clear-group">
+              <span class="confirm-clear-text">대화 기록을 모두 지우시겠습니까?</span>
+              <div class="confirm-clear-actions">
+                <button class="confirm-btn yes" @click="confirmClearHistory">지우기</button>
+                <button class="confirm-btn no" @click="showClearConfirm = false">취소</button>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Message List -->
@@ -68,18 +84,34 @@
 
         <!-- Input Area -->
         <form @submit.prevent="sendMessage" class="input-area">
+          <button 
+            type="button" 
+            class="mic-btn"
+            :class="{ 'is-recording': isRecording }"
+            @click="toggleRecording"
+            :disabled="store.isAgentThinking"
+            :title="isRecording ? '녹음 중지 및 전송' : '음성 명령 보내기'"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </button>
           <input 
             v-model="inputMsg" 
             type="text" 
-            placeholder="어시스턴트에게 질문해 보세요..." 
+            :placeholder="isRecording ? '음성 녹음 중... (한번 더 눌러 전송)' : '어시스턴트에게 질문해 보세요...'" 
             class="chat-input"
-            :disabled="store.isAgentThinking"
+            :class="{ 'recording-active': isRecording }"
+            :disabled="store.isAgentThinking || isRecording"
             ref="inputField"
           />
           <button 
             type="submit" 
             class="send-btn" 
-            :disabled="!inputMsg.trim() || store.isAgentThinking"
+            :disabled="!inputMsg.trim() || store.isAgentThinking || isRecording"
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -120,6 +152,7 @@ const isOpen = ref(false);
 const inputMsg = ref('');
 const messageList = ref(null);
 const inputField = ref(null);
+const showClearConfirm = ref(false);
 
 onMounted(() => {
   store.fetchAgentHistory();
@@ -127,6 +160,7 @@ onMounted(() => {
 
 const toggleChat = () => {
   isOpen.value = !isOpen.value;
+  showClearConfirm.value = false;
   if (isOpen.value) {
     nextTick(() => {
       scrollToBottom();
@@ -145,6 +179,47 @@ const sendMessage = async () => {
   scrollToBottom();
 };
 
+const isRecording = ref(false);
+let mediaRecorder = null;
+let audioChunks = [];
+
+const toggleRecording = async () => {
+  if (isRecording.value) {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    isRecording.value = false;
+  } else {
+    audioChunks = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        stream.getTracks().forEach(track => track.stop());
+        
+        if (audioBlob.size > 100) {
+          await store.sendVoiceAgentMessage(audioBlob);
+          scrollToBottom();
+        }
+      };
+
+      mediaRecorder.start();
+      isRecording.value = true;
+    } catch (err) {
+      console.error('Failed to access microphone:', err);
+      alert('마이크 사용 권한을 허용해 주세요.');
+    }
+  }
+};
+
 const useExample = (text) => {
   inputMsg.value = text;
   if (inputField.value) {
@@ -152,10 +227,9 @@ const useExample = (text) => {
   }
 };
 
-const handleClearHistory = async () => {
-  if (confirm('대화 기록을 정말 초기화하시겠습니까?')) {
-    await store.clearAgentHistory();
-  }
+const confirmClearHistory = () => {
+  store.clearAgentHistory();
+  showClearConfirm.value = false;
 };
 
 const scrollToBottom = () => {
@@ -514,8 +588,60 @@ watch(() => store.isAgentThinking, scrollToBottom);
   background-color: rgba(255, 255, 255, 0.6);
   border-top: 1px solid rgba(0, 0, 0, 0.05);
   display: flex;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   align-items: center;
+}
+
+.mic-btn {
+  background-color: var(--color-canvas-parchment);
+  color: var(--color-primary);
+  border: 1px solid rgba(0, 102, 204, 0.2);
+  border-radius: var(--radius-full);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.mic-btn:hover:not(:disabled) {
+  background-color: rgba(0, 102, 204, 0.05);
+  transform: scale(1.05);
+}
+
+.mic-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.mic-btn:disabled {
+  background-color: var(--color-surface-chip-translucent);
+  color: var(--color-ink-muted-48);
+  border-color: transparent;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.mic-btn.is-recording {
+  background-color: #ff3b30;
+  color: white;
+  border-color: transparent;
+  animation: mic-pulse 1.5s infinite;
+  box-shadow: 0 0 12px rgba(255, 59, 48, 0.5);
+}
+
+.chat-input.recording-active {
+  border-color: rgba(255, 59, 48, 0.5);
+  box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+}
+
+@keyframes mic-pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.7); }
+  70% { transform: scale(1.08); box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
 }
 
 .chat-input {
@@ -605,5 +731,53 @@ watch(() => store.isAgentThinking, scrollToBottom);
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.confirm-clear-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px 0;
+  animation: fade-in 0.2s ease-out;
+}
+
+.confirm-clear-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.confirm-clear-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.confirm-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.confirm-btn.yes {
+  background-color: #ff3b30;
+  color: white;
+}
+
+.confirm-btn.yes:hover {
+  background-color: #e02e24;
+}
+
+.confirm-btn.no {
+  background-color: var(--color-surface-chip-translucent);
+  color: var(--color-ink);
+}
+
+.confirm-btn.no:hover {
+  background-color: rgba(0, 0, 0, 0.08);
 }
 </style>

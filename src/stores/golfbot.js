@@ -11,11 +11,30 @@ export const useGolfbotStore = defineStore('golfbot', () => {
   const activeModalBall = ref(null);
   const chatMessages = ref([]);
   const isAgentThinking = ref(false);
+  const getInitialAuthState = () => {
+    const token = localStorage.getItem('golfbot_auth_token') || '';
+    const expiresAtStr = localStorage.getItem('golfbot_token_expires_at') || '0';
+    const expiresAt = Number(expiresAtStr);
+    
+    if (token && expiresAt > Date.now()) {
+      return { loggedIn: true, token, expiresAt };
+    } else {
+      localStorage.removeItem('golfbot_auth_token');
+      localStorage.removeItem('golfbot_token_expires_at');
+      return { loggedIn: false, token: '', expiresAt: 0 };
+    }
+  };
+
+  const initialAuth = getInitialAuthState();
+  const isLoggedIn = ref(initialAuth.loggedIn);
+  const authToken = ref(initialAuth.token);
+  const tokenExpiresAt = ref(initialAuth.expiresAt);
   
   let ws = null;
   let notificationTimeout = null;
 
   const connectWebSocket = () => {
+    if (!isLoggedIn.value) return;
     if (ws) return;
     
     ws = new WebSocket('ws://localhost:8000/ws');
@@ -124,12 +143,128 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     }
   };
 
+  const sendVoiceAgentMessage = async (audioBlob) => {
+    isAgentThinking.value = true;
+    
+    const historyPayload = chatMessages.value.map(m => ({
+      role: m.role,
+      content: m.content
+    }));
+    
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'voice_input.wav');
+    formData.append('history', JSON.stringify(historyPayload));
+    
+    try {
+      const res = await fetch('http://localhost:8000/api/agent/voice', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        const transcription = data.transcription;
+        const responseText = data.response;
+        
+        if (transcription) {
+          chatMessages.value.push({ role: 'user', content: `🎙️ ${transcription}` });
+        } else {
+          chatMessages.value.push({ role: 'user', content: `🎙️ [인식할 수 없는 음성]` });
+        }
+        
+        chatMessages.value.push({ role: 'assistant', content: responseText });
+      } else {
+        chatMessages.value.push({ role: 'assistant', content: `에러가 발생했습니다: ${data.detail || '음성을 분석하지 못했습니다.'}` });
+      }
+    } catch (e) {
+      console.error('Failed to send voice message:', e);
+      chatMessages.value.push({ role: 'assistant', content: '네트워크 오류가 발생했습니다. 서버 연결 상태를 확인해 주세요.' });
+    } finally {
+      isAgentThinking.value = false;
+      try {
+        localStorage.setItem('golfbot_chat_history', JSON.stringify(chatMessages.value));
+      } catch (e) {
+        console.error('Failed to save finalized chat history to localStorage:', e);
+      }
+    }
+  };
+
   const clearAgentHistory = () => {
     try {
       localStorage.removeItem('golfbot_chat_history');
       chatMessages.value = [];
     } catch (e) {
       console.error('Failed to clear agent history:', e);
+    }
+  };
+
+  const login = async (username, passwordHash) => {
+    try {
+      const res = await fetch('http://localhost:8000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          password_hash: passwordHash
+        })
+      });
+      
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        authToken.value = data.token;
+        tokenExpiresAt.value = data.expires_at;
+        isLoggedIn.value = true;
+        localStorage.setItem('golfbot_auth_token', data.token);
+        localStorage.setItem('golfbot_token_expires_at', data.expires_at);
+        connectWebSocket();
+        return { success: true };
+      } else {
+        return { success: false, message: data.detail || '로그인에 실패했습니다.' };
+      }
+    } catch (e) {
+      console.error('Login error:', e);
+      return { success: false, message: '서버와 통신 중 오류가 발생했습니다. 서버 상태를 확인해 주세요.' };
+    }
+  };
+
+  const logout = () => {
+    authToken.value = '';
+    tokenExpiresAt.value = 0;
+    isLoggedIn.value = false;
+    localStorage.removeItem('golfbot_auth_token');
+    localStorage.removeItem('golfbot_token_expires_at');
+    disconnectWebSocket();
+  };
+
+  const validateTokenOnServer = async () => {
+    if (!authToken.value) return false;
+    try {
+      const res = await fetch('http://localhost:8000/api/auth/validate', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authToken.value}`
+        }
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        tokenExpiresAt.value = data.expires_at;
+        localStorage.setItem('golfbot_token_expires_at', data.expires_at);
+        return true;
+      } else {
+        logout();
+        return false;
+      }
+    } catch (e) {
+      console.error('Token validation error:', e);
+      // Fallback: if server is unreachable, check local expiration
+      if (tokenExpiresAt.value > Date.now()) {
+        return true;
+      }
+      logout();
+      return false;
     }
   };
 
@@ -141,10 +276,17 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     activeModalBall,
     chatMessages,
     isAgentThinking,
+    isLoggedIn,
+    authToken,
+    tokenExpiresAt,
     connectWebSocket,
     disconnectWebSocket,
     fetchAgentHistory,
     sendAgentMessage,
-    clearAgentHistory
+    sendVoiceAgentMessage,
+    clearAgentHistory,
+    login,
+    logout,
+    validateTokenOnServer
   };
 });

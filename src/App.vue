@@ -1,7 +1,7 @@
 <template>
   <div class="apple-dashboard">
     <!-- Global Nav -->
-    <nav class="global-nav">
+    <nav class="global-nav" v-if="store.isLoggedIn">
       <div class="nav-content">
         <span class="nav-brand">FastAPI ROS 2 대시보드</span>
         
@@ -11,9 +11,12 @@
           <router-link to="/history" class="nav-link" active-class="active">파손 이력</router-link>
         </div>
 
-        <div class="nav-status">
-          <span class="status-indicator" :class="{ 'is-connected': store.isConnected }"></span>
-          {{ store.isConnected ? 'Robot Connected' : 'Robot Disconnected' }}
+        <div class="nav-right">
+          <div class="nav-status">
+            <span class="status-indicator" :class="{ 'is-connected': store.isConnected }"></span>
+            {{ store.isConnected ? 'Robot Connected' : 'Robot Disconnected' }}
+          </div>
+          <button class="button-logout" @click="handleLogout">로그아웃</button>
         </div>
       </div>
     </nav>
@@ -38,7 +41,7 @@
     </main>
     
     <!-- Global Footer -->
-    <footer class="footer">
+    <footer class="footer" v-if="store.isLoggedIn">
       <p>Golfbot Control Interface</p>
     </footer>
   </div>
@@ -80,15 +83,17 @@
   </div>
 
   <!-- Global Floating AI Chat -->
-  <FloatingChat />
+  <FloatingChat v-if="store.isLoggedIn" />
 </template>
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useGolfbotStore } from './stores/golfbot';
 import FloatingChat from './components/FloatingChat.vue';
 
 const store = useGolfbotStore();
+const router = useRouter();
 
 onMounted(() => {
   store.connectWebSocket();
@@ -97,6 +102,11 @@ onMounted(() => {
 onUnmounted(() => {
   store.disconnectWebSocket();
 });
+
+const handleLogout = () => {
+  store.logout();
+  router.push({ name: 'login' });
+};
 
 const handleNotificationClick = () => {
   if (store.brokenBallNotification) {
@@ -200,6 +210,32 @@ const getRoomName = (location) => {
   align-items: center;
   gap: var(--space-xs);
   color: var(--color-body-muted);
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.button-logout {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-on-dark);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font: var(--text-nav-link);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.button-logout:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.button-logout:active {
+  transform: scale(0.95);
 }
 
 .status-indicator {
