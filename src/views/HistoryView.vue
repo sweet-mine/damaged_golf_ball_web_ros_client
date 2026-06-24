@@ -3,8 +3,8 @@
     <div class="history-container">
       <!-- Header -->
       <div class="history-header">
-        <h1 class="hero-headline">파손 골프공 검출 통계 및 이력</h1>
-        <p class="hero-tagline">실시간으로 축적된 골프공 파손 내역을 조회하고 실시간 통계 분석 그래프를 통해 파손 경향을 분석합니다.</p>
+        <h1 class="hero-headline">Analytics Page</h1>
+        <p class="hero-tagline">축적된 골프공 파손 내역을 조회하고 그래프를 통해 파손 경향을 분석할 수 있습니다.</p>
       </div>
 
       <!-- Loading State (Large Spinner) -->
