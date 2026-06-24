@@ -51,49 +51,22 @@
             </div>
           </div>
 
-          <!-- Card 2: Room Distribution (Horizontal Bars) -->
+          <!-- Card 2: Room Distribution (Doughnut Chart) -->
           <div class="store-utility-card distribution-card">
             <h3 class="card-title">방별 검출 비율</h3>
-            <div class="horizontal-bars">
-              <div v-for="roomNum in [1, 2, 3, 4]" :key="roomNum" class="bar-row">
-                <div class="bar-info">
-                  <span class="bar-label">{{ roomNum }}번 방</span>
-                  <span class="bar-count">{{ roomStats.counts[roomNum] }}건 ({{ getRoomPercentage(roomNum) }}%)</span>
-                </div>
-                <div class="bar-track">
-                  <div 
-                    class="bar-fill" 
-                    :class="'room-' + roomNum" 
-                    :style="{ width: getRoomPercentage(roomNum) + '%' }"
-                  ></div>
-                </div>
-              </div>
+            <div class="chart-wrapper">
+              <canvas id="roomChart"></canvas>
             </div>
           </div>
 
-          <!-- Card 3: Date Trend (Vertical Bars via SVG) -->
+          <!-- Card 3: Date Trend (Line Chart) -->
           <div class="store-utility-card trend-card">
             <h3 class="card-title">최근 일별 추이 (최근 7일)</h3>
-            <div class="chart-container">
+            <div class="chart-wrapper">
               <div v-if="dateStats.chartData.length === 0" class="no-trend">
                 추이 데이터 부족
               </div>
-              <div v-else class="vertical-bars">
-                <div 
-                  v-for="day in dateStats.chartData" 
-                  :key="day.fullDate" 
-                  class="v-bar-col"
-                >
-                  <div class="v-bar-count">{{ day.count }}</div>
-                  <div class="v-bar-track">
-                    <div 
-                      class="v-bar-fill" 
-                      :style="{ height: (day.count / dateStats.maxCountInChart * 100) + '%' }"
-                    ></div>
-                  </div>
-                  <div class="v-bar-label">{{ day.date }}</div>
-                </div>
-              </div>
+              <canvas v-else id="trendChart"></canvas>
             </div>
           </div>
         </div>
@@ -170,23 +143,62 @@
                   <th class="col-actions">관리</th>
                 </tr>
               </thead>
-              <transition-group name="row-fade" tag="tbody">
-                <tr v-for="item in filteredHistoryList" :key="item.id" @click="openImageModal(item)" class="clickable-row">
-                  <td class="col-id font-mono">#{{ item.id }}</td>
-                  <td class="col-time">{{ item.timestamp }}</td>
-                  <td class="col-location">
-                    <span class="room-badge" :class="'room-' + getRoomNumber(item.location)">
-                      {{ getRoomName(item.location) }}
-                    </span>
-                  </td>
-                  <td class="col-actions">
-                    <button class="btn-delete-row" @click.stop="deleteItem(item.id)">
-                      삭제
-                    </button>
-                  </td>
-                </tr>
-              </transition-group>
+              <transition name="page-fade" mode="out-in">
+                <tbody :key="currentPage">
+                  <tr v-for="item in paginatedHistoryList" :key="item.id" @click="openImageModal(item)" class="clickable-row">
+                    <td class="col-id font-mono">#{{ item.id }}</td>
+                    <td class="col-time">{{ item.timestamp }}</td>
+                    <td class="col-location">
+                      <span class="room-badge" :class="'room-' + getRoomNumber(item.location)">
+                        {{ getRoomName(item.location) }}
+                      </span>
+                    </td>
+                    <td class="col-actions">
+                      <button class="btn-delete-row" @click.stop="deleteItem(item.id)">
+                        삭제
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </transition>
             </table>
+
+            <!-- Pagination Controls -->
+            <div class="pagination-container">
+              <button 
+                class="btn-pagination" 
+                :disabled="currentPage === 1" 
+                @click="currentPage = 1"
+              >
+                ≪
+              </button>
+              <button 
+                class="btn-pagination" 
+                :disabled="currentPage === 1" 
+                @click="currentPage--"
+              >
+                이전
+              </button>
+              
+              <span class="pagination-info">
+                {{ currentPage }} / {{ totalPages }} 페이지
+              </span>
+              
+              <button 
+                class="btn-pagination" 
+                :disabled="currentPage === totalPages" 
+                @click="currentPage++"
+              >
+                다음
+              </button>
+              <button 
+                class="btn-pagination" 
+                :disabled="currentPage === totalPages" 
+                @click="currentPage = totalPages"
+              >
+                ≫
+              </button>
+            </div>
           </div>
         </div>
       </template>
@@ -195,12 +207,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick, onUnmounted, watch } from 'vue';
 import { useGolfbotStore } from '../stores/golfbot';
+import { Chart, registerables } from 'chart.js';
+
+Chart.register(...registerables);
 
 const store = useGolfbotStore();
 const historyList = ref([]);
 const isLoading = ref(false);
+
+const currentPage = ref(1);
+const itemsPerPage = ref(10);
 
 const openImageModal = (item) => {
   store.activeModalBall = item;
@@ -210,10 +228,146 @@ const openImageModal = (item) => {
 const selectedDate = ref('');
 const selectedRoom = ref('all'); // 'all', '1', '2', '3', '4'
 
+let roomChart = null;
+let trendChart = null;
+
+const initCharts = () => {
+  const roomCtx = document.getElementById('roomChart');
+  const trendCtx = document.getElementById('trendChart');
+  
+  if (roomCtx) {
+    roomChart = new Chart(roomCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['1번 방', '2번 방', '3번 방', '4번 방'],
+        datasets: [{
+          data: [0, 0, 0, 0],
+          backgroundColor: ['#0066cc', '#34c759', '#ff9500', '#af52de'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              boxWidth: 12,
+              font: {
+                family: 'SF Pro Text, system-ui, -apple-system, sans-serif',
+                size: 11
+              },
+              color: '#1d1d1f'
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(29, 29, 31, 0.9)',
+            titleFont: { family: 'SF Pro Text' },
+            bodyFont: { family: 'SF Pro Text' }
+          }
+        },
+        cutout: '70%'
+      }
+    });
+  }
+  
+  if (trendCtx) {
+    trendChart = new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: '검출 건수',
+          data: [],
+          borderColor: '#0066cc',
+          backgroundColor: 'rgba(0, 102, 204, 0.05)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2,
+          pointBackgroundColor: '#0066cc',
+          pointBorderColor: '#ffffff',
+          pointBorderWidth: 1.5,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(29, 29, 31, 0.9)',
+            titleFont: { family: 'SF Pro Text' },
+            bodyFont: { family: 'SF Pro Text' }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              font: {
+                family: 'SF Pro Text, system-ui, -apple-system, sans-serif',
+                size: 11
+              },
+              color: '#7a7a7a'
+            }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#f0f0f0' },
+            ticks: {
+              stepSize: 1,
+              font: {
+                family: 'SF Pro Text, system-ui, -apple-system, sans-serif',
+                size: 11
+              },
+              color: '#7a7a7a'
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  updateCharts();
+};
+
+const updateCharts = () => {
+  if (roomChart) {
+    const counts = roomStats.value.counts;
+    roomChart.data.datasets[0].data = [
+      counts[1] || 0,
+      counts[2] || 0,
+      counts[3] || 0,
+      counts[4] || 0
+    ];
+    roomChart.update();
+  }
+  
+  if (trendChart) {
+    const chartData = dateStats.value.chartData;
+    trendChart.data.labels = chartData.map(d => d.date);
+    trendChart.data.datasets[0].data = chartData.map(d => d.count);
+    trendChart.update();
+  }
+};
+
+watch([selectedDate, historyList], () => {
+  nextTick(() => {
+    if (!roomChart && !trendChart) {
+      initCharts();
+    } else {
+      updateCharts();
+    }
+  });
+});
+
 const fetchHistory = async () => {
   isLoading.value = true;
   try {
-    const response = await fetch('http://localhost:8000/api/broken_ball/');
+    const response = await fetch(`http://${window.location.hostname}:8000/api/broken_ball/`);
     if (response.ok) {
       const result = await response.json();
       if (result.status === 'success') {
@@ -233,7 +387,7 @@ const deleteItem = async (id) => {
   if (!confirm('이 파손 기록을 정말 삭제하시겠습니까?')) return;
   
   try {
-    const response = await fetch(`http://localhost:8000/api/broken_ball/${id}`, {
+    const response = await fetch(`http://${window.location.hostname}:8000/api/broken_ball/${id}`, {
       method: 'DELETE',
     });
     if (response.ok) {
@@ -249,6 +403,11 @@ const deleteItem = async (id) => {
     console.error('Error deleting item:', error);
   }
 };
+
+onUnmounted(() => {
+  if (roomChart) roomChart.destroy();
+  if (trendChart) trendChart.destroy();
+});
 
 // Filter Reset
 const resetFilters = () => {
@@ -278,11 +437,13 @@ const getRoomName = (location) => {
   }
 };
 
-const getRoomPercentage = (roomNum) => {
-  if (totalCount.value === 0) return 0;
-  const count = roomStats.value.counts[roomNum] || 0;
-  return Math.round((count / totalCount.value) * 100);
-};
+const dateFilteredHistoryList = computed(() => {
+  if (!selectedDate.value) return historyList.value;
+  return historyList.value.filter(item => {
+    const itemDate = item.timestamp.split(' ')[0];
+    return itemDate === selectedDate.value;
+  });
+});
 
 // Computeds for Filtering
 const filteredHistoryList = computed(() => {
@@ -301,6 +462,35 @@ const filteredHistoryList = computed(() => {
   });
 });
 
+const totalPages = computed(() => {
+  return Math.ceil(filteredHistoryList.value.length / itemsPerPage.value) || 1;
+});
+
+const paginatedHistoryList = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  const end = start + itemsPerPage.value;
+  return filteredHistoryList.value.slice(start, end);
+});
+
+watch([selectedDate, selectedRoom], () => {
+  currentPage.value = 1;
+});
+
+watch(totalPages, (newVal) => {
+  if (currentPage.value > newVal) {
+    currentPage.value = newVal;
+  }
+});
+
+
+
+const getRoomPercentage = (roomNum) => {
+  const currentTotal = dateFilteredHistoryList.value.length;
+  if (currentTotal === 0) return 0;
+  const count = roomStats.value.counts[roomNum] || 0;
+  return Math.round((count / currentTotal) * 100);
+};
+
 // Computeds for Global Statistics (Calculated from full history list)
 const totalCount = computed(() => historyList.value.length);
 
@@ -308,7 +498,7 @@ const roomStats = computed(() => {
   const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
   let unknown = 0;
   
-  historyList.value.forEach(item => {
+  dateFilteredHistoryList.value.forEach(item => {
     const r = getRoomNumber(item.location);
     if (r >= 1 && r <= 4) {
       counts[r]++;
@@ -503,116 +693,21 @@ onMounted(() => {
   margin-left: 2px;
 }
 
-/* Room Distribution Card */
-.horizontal-bars {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  flex: 1;
-}
-
-.bar-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.bar-info {
-  display: flex;
-  justify-content: space-between;
-  font: var(--text-caption);
-}
-
-.bar-label {
-  font-weight: 500;
-  color: var(--color-ink);
-}
-
-.bar-count {
-  color: var(--color-ink-muted-80);
-}
-
-.bar-track {
-  height: 8px;
-  background-color: var(--color-surface-pearl);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  border: 1px solid var(--color-divider-soft);
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: var(--radius-full);
-  transition: width 0.8s cubic-bezier(0.25, 0.8, 0.25, 1);
-  width: 0%;
-}
-
-.bar-fill.room-1 { background-color: #0066cc; }
-.bar-fill.room-2 { background-color: #34c759; }
-.bar-fill.room-3 { background-color: #ff9500; }
-.bar-fill.room-4 { background-color: #af52de; }
-
-/* Trend Card (Vertical Chart) */
-.chart-container {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  height: 140px;
+/* Chart Wrapper */
+.chart-wrapper {
+  position: relative;
+  width: 100%;
+  height: 180px;
   flex: 1;
 }
 
 .no-trend {
   font: var(--text-caption);
   color: var(--color-ink-muted-48);
-}
-
-.vertical-bars {
   display: flex;
-  justify-content: space-around;
-  align-items: flex-end;
-  width: 100%;
-  height: 100%;
-  gap: 8px;
-}
-
-.v-bar-col {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  flex: 1;
+  justify-content: center;
   height: 100%;
-  justify-content: flex-end;
-  gap: var(--space-xxs);
-}
-
-.v-bar-count {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-
-.v-bar-track {
-  width: 16px;
-  height: 90px;
-  background-color: var(--color-surface-pearl);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: flex-end;
-  border: 1px solid var(--color-divider-soft);
-}
-
-.v-bar-fill {
-  width: 100%;
-  background-color: var(--color-primary);
-  border-radius: var(--radius-sm);
-  transition: height 0.8s cubic-bezier(0.25, 0.8, 0.25, 1);
-  height: 0%;
-}
-
-.v-bar-label {
-  font-size: 10px;
-  color: var(--color-ink-muted-48);
-  white-space: nowrap;
 }
 
 /* Filters Panel */
@@ -846,6 +941,10 @@ onMounted(() => {
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
+  min-height: 630px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .history-table {
@@ -999,21 +1098,15 @@ onMounted(() => {
   color: var(--color-ink-muted-48);
 }
 
-/* Table Transitions */
-.row-fade-enter-active,
-.row-fade-leave-active {
-  transition: all 0.4s ease;
+/* Page Transitions */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.15s ease;
 }
 
-.row-fade-enter-from {
+.page-fade-enter-from,
+.page-fade-leave-to {
   opacity: 0;
-  transform: translateY(10px);
-}
-
-.row-fade-leave-to {
-  opacity: 0;
-  transform: translateX(-30px);
-  background-color: rgba(255, 59, 48, 0.1);
 }
 /* Clickable Rows */
 .history-table tbody tr {
@@ -1022,6 +1115,47 @@ onMounted(() => {
 
 .history-table tbody tr:hover {
   background-color: var(--color-surface-pearl);
+}
+
+/* Pagination Styling */
+.pagination-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border-top: 1px solid var(--color-divider-soft);
+  background-color: var(--color-canvas-parchment);
+}
+
+.btn-pagination {
+  background-color: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-ink);
+  font: var(--text-caption);
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-pagination:hover:not(:disabled) {
+  background-color: var(--color-surface-pearl);
+  border-color: var(--color-ink-muted-48);
+}
+
+.btn-pagination:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-ink-muted-80);
+  min-width: 80px;
+  text-align: center;
 }
 
 </style>

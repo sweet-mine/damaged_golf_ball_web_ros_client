@@ -11,7 +11,7 @@
         <!-- Left: Camera Stream -->
         <div class="dashboard-column video-column">
           <div class="video-container">
-            <img src="http://localhost:8000/video_feed" alt="ROS 2 Camera Stream" class="video-stream" />
+            <img :src="videoFeedUrl" alt="ROS 2 Camera Stream" class="video-stream" />
           </div>
           <div class="connection-status">
             <div class="button-primary" :class="{ 'disconnected': !store.isConnected }">
@@ -40,21 +40,26 @@
                 </div>
               </div>
             </div>
-
-            <!-- performance_metrics Utility Card -->
+            <!-- Robot Location Utility Card -->
             <div class="store-utility-card">
               <div class="card-header">
-                <h2 class="card-title">/battery_state</h2>
-                <p class="card-subtitle">배터리 상태</p>
+                <h2 class="card-title">Robot Location</h2>
+                <p class="card-subtitle">로봇 실시간 위치</p>
               </div>
               <div class="card-body">
                 <div class="data-row">
-                  <span class="data-label">Voltage</span>
-                  <span class="data-value">{{ store.batteryState.voltage }} <span class="unit">V</span></span>
+                  <span class="data-label">Location</span>
+                  <span class="data-value">
+                    {{ store.robotLocation.location }}
+                  </span>
                 </div>
                 <div class="data-row">
-                  <span class="data-label">Percentage</span>
-                  <span class="data-value">{{ store.batteryState.percentage }} <span class="unit">%</span></span>
+                  <span class="data-label">Position X</span>
+                  <span class="data-value">{{ (store.robotLocation.x ?? 0).toFixed(2) }} <span class="unit">m</span></span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Position Y</span>
+                  <span class="data-value">{{ (store.robotLocation.y ?? 0).toFixed(2) }} <span class="unit">m</span></span>
                 </div>
               </div>
             </div>
@@ -105,10 +110,11 @@ import { useGolfbotStore } from '../stores/golfbot';
 
 const store = useGolfbotStore();
 const isNavModalOpen = ref(false);
+const videoFeedUrl = `http://${window.location.hostname}:8000/video_feed`;
 
 const sendNavCommand = async (x, y) => {
   try {
-    const response = await fetch('http://localhost:8000/nav', {
+    const response = await fetch(`http://${window.location.hostname}:8000/nav`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -134,7 +140,7 @@ const sendNavCommand = async (x, y) => {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: var(--space-section) 0;
+  padding: var(--space-md) 0;
   background-color: var(--color-canvas);
 }
 
@@ -144,7 +150,7 @@ const sendNavCommand = async (x, y) => {
   padding: 0 var(--space-xl);
   display: flex;
   flex-direction: column;
-  gap: var(--space-xxl);
+  gap: var(--space-md);
 }
 
 .dashboard-header {
@@ -161,7 +167,7 @@ const sendNavCommand = async (x, y) => {
   font: var(--text-lead);
   letter-spacing: var(--track-lead);
   color: var(--color-ink);
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-sm);
 }
 
 .dashboard-grid {
@@ -173,7 +179,7 @@ const sendNavCommand = async (x, y) => {
   .dashboard-grid {
     grid-template-columns: 2fr 1fr;
     align-items: start;
-    gap: var(--space-xxl);
+    gap: var(--space-lg);
   }
 }
 
@@ -187,7 +193,7 @@ const sendNavCommand = async (x, y) => {
 
 .video-container {
   width: 100%;
-  max-width: 900px;
+  max-width: 720px;
 }
 
 .video-stream {

@@ -4,6 +4,7 @@ import { ref, computed } from 'vue';
 export const useGolfbotStore = defineStore('golfbot', () => {
   const cmdVel = ref({ linear_x: 0, angular_z: 0 });
   const batteryState = ref({ voltage: 0, percentage: 0 });
+  const robotLocation = ref({ x: 0.0, y: 0.0, location: '대기 중' });
   const isWsConnected = ref(false);
   const isRobotConnected = ref(false);
   const isConnected = computed(() => isWsConnected.value && isRobotConnected.value);
@@ -37,7 +38,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     if (!isLoggedIn.value) return;
     if (ws) return;
     
-    ws = new WebSocket('ws://localhost:8000/ws');
+    ws = new WebSocket(`ws://${window.location.hostname}:8000/ws`);
     
     ws.onopen = () => {
       isWsConnected.value = true;
@@ -49,6 +50,8 @@ export const useGolfbotStore = defineStore('golfbot', () => {
         cmdVel.value = payload.data;
       } else if (payload.type === 'battery_data') {
         batteryState.value = payload.data;
+      } else if (payload.type === 'location_data') {
+        robotLocation.value = payload.data;
       } else if (payload.type === 'robot_connection') {
         isRobotConnected.value = payload.data.connected;
       } else if (payload.type === 'broken_ball_notification') {
@@ -113,7 +116,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     }));
     
     try {
-      const res = await fetch('http://localhost:8000/api/agent/chat', {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/agent/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -156,7 +159,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     formData.append('history', JSON.stringify(historyPayload));
     
     try {
-      const res = await fetch('http://localhost:8000/api/agent/voice', {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/agent/voice`, {
         method: 'POST',
         body: formData
       });
@@ -200,7 +203,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
 
   const login = async (username, passwordHash) => {
     try {
-      const res = await fetch('http://localhost:8000/api/auth/login', {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -241,7 +244,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
   const validateTokenOnServer = async () => {
     if (!authToken.value) return false;
     try {
-      const res = await fetch('http://localhost:8000/api/auth/validate', {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/auth/validate`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken.value}`
@@ -271,6 +274,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
   return {
     cmdVel,
     batteryState,
+    robotLocation,
     isConnected,
     brokenBallNotification,
     activeModalBall,
