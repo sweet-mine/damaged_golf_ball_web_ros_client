@@ -3,7 +3,7 @@
     <!-- Global Nav -->
     <nav class="global-nav" v-if="store.isLoggedIn">
       <div class="nav-content">
-        <span class="nav-brand">FastAPI ROS 2 대시보드</span>
+        <span class="nav-brand">Eagle Eye</span>
         
         <!-- Navigation Links -->
         <div class="nav-links">

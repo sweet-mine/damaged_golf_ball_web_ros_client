@@ -80,16 +80,19 @@
       </div>
       <div class="modal-body utility-grid">
         <button class="store-utility-card nav-card" @click="sendNavCommand(1.83, 1.45)">
-          <span class="data-value">x: 1.83, y: 1.45</span>
+          <span class="data-value">1번 방</span>
         </button>
         <button class="store-utility-card nav-card" @click="sendNavCommand(1.83, -1.61)">
-          <span class="data-value">x: 1.83, y: -1.61</span>
+          <span class="data-value">2번 방</span>
         </button>
         <button class="store-utility-card nav-card" @click="sendNavCommand(-0.40, 1.45)">
-          <span class="data-value">x: -0.40, y: 1.45</span>
+          <span class="data-value">3번 방</span>
         </button>
         <button class="store-utility-card nav-card" @click="sendNavCommand(-0.40, -1.61)">
-          <span class="data-value">x: -0.40, y: -1.61</span>
+          <span class="data-value">4번 방</span>
+        </button>
+        <button class="store-utility-card nav-card" @click="sendNavCommand(-2.0, -0.5)">
+          <span class="data-value">카운터</span>
         </button>
       </div>
     </div>
