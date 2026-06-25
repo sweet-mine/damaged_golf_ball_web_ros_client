@@ -63,7 +63,7 @@
             :class="msg.role"
           >
             <div class="message-bubble">
-              <div class="message-content">{{ msg.content }}</div>
+              <div class="message-content" v-html="renderContent(msg.content)"></div>
             </div>
           </div>
 
@@ -146,8 +146,70 @@
 <script setup>
 import { ref, nextTick, watch, onMounted } from 'vue';
 import { useGolfbotStore } from '../stores/golfbot';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 const store = useGolfbotStore();
+
+// Render Markdown and KaTeX math formulas safely
+const renderContent = (text) => {
+  if (!text) return '';
+  
+  // 1. Escape HTML to prevent XSS
+  let escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  
+  // 2. Extract math formulas to placeholders to protect from markdown parser
+  const mathBlocks = [];
+  
+  // Block math \[ ... \]
+  escaped = escaped.replace(/\\\[([\s\S]*?)\\\]/g, (match, math) => {
+    try {
+      const rawMath = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      const rendered = katex.renderToString(rawMath, { displayMode: true, throwOnError: false });
+      const placeholder = `__MATH_BLOCK_${mathBlocks.length}__`;
+      mathBlocks.push(`<div class="katex-block-wrapper">${rendered}</div>`);
+      return placeholder;
+    } catch (err) {
+      return match;
+    }
+  });
+
+  // Inline math \( ... \)
+  escaped = escaped.replace(/\\\(([\s\S]*?)\\\)/g, (match, math) => {
+    try {
+      const rawMath = math.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      const rendered = katex.renderToString(rawMath, { displayMode: false, throwOnError: false });
+      const placeholder = `__MATH_BLOCK_${mathBlocks.length}__`;
+      mathBlocks.push(rendered);
+      return placeholder;
+    } catch (err) {
+      return match;
+    }
+  });
+
+  // 3. Simple Markdown parsing
+  // Bold: **text**
+  escaped = escaped.replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>');
+  
+  // Italic: *text*
+  escaped = escaped.replace(/\*([\s\S]*?)\*/g, '<em>$1</em>');
+  
+  // Inline code: `code`
+  escaped = escaped.replace(/`([^`]+)`/g, '<code class="chat-code">$1</code>');
+
+  // Convert newlines to br
+  escaped = escaped.replace(/\n/g, '<br>');
+
+  // 4. Restore math blocks
+  mathBlocks.forEach((renderedHtml, index) => {
+    escaped = escaped.replace(`__MATH_BLOCK_${index}__`, renderedHtml);
+  });
+
+  return escaped;
+};
 const isOpen = ref(false);
 const inputMsg = ref('');
 const messageList = ref(null);
@@ -544,8 +606,21 @@ watch(() => store.isAgentThinking, scrollToBottom);
 }
 
 .message-content {
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.katex-block-wrapper {
+  margin: var(--space-xs) 0;
+  overflow-x: auto;
+  padding: 4px;
+}
+
+.chat-code {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+  font-size: 0.9em;
 }
 
 /* Thinking Bubble & Loader */
