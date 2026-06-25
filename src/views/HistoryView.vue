@@ -8,13 +8,13 @@
       </div>
 
       <!-- Loading State (Large Spinner) -->
-      <div v-if="isLoading && historyList.length === 0" class="spinner-container">
+      <div v-if="isLoading && totalDbCount === 0" class="spinner-container">
         <div class="spinner"></div>
         <p>파손 데이터 및 통계를 구성 중입니다...</p>
       </div>
 
       <!-- Empty State -->
-      <div v-else-if="historyList.length === 0" class="empty-state">
+      <div v-else-if="totalDbCount === 0" class="empty-state">
         <div class="empty-icon-wrapper">
           <span class="empty-icon">📊</span>
         </div>
@@ -118,7 +118,7 @@
           <div class="list-section-header">
             <h2 class="section-subtitle">
               검출 이력 목록 
-              <span class="count-badge">{{ filteredHistoryList.length }} / {{ totalCount }}건</span>
+              <span class="count-badge">{{ totalFilteredCount }} / {{ totalCount }}건</span>
             </h2>
             <button class="button-refresh small" @click="fetchHistory" :disabled="isLoading">
               <span class="refresh-icon" :class="{ 'spinning': isLoading }">↻</span>
@@ -127,7 +127,7 @@
           </div>
 
           <!-- Empty Filter State -->
-          <div v-if="filteredHistoryList.length === 0" class="empty-filter-state">
+          <div v-if="totalFilteredCount === 0" class="empty-filter-state">
             <p class="empty-filter-text">선택하신 필터 조건과 일치하는 파손 이력이 없습니다.</p>
             <button class="button-clear secondary" @click="resetFilters">모든 이력 보기</button>
           </div>
@@ -145,7 +145,7 @@
               </thead>
               <transition name="page-fade" mode="out-in">
                 <tbody :key="currentPage">
-                  <tr v-for="item in paginatedHistoryList" :key="item.id" @click="openImageModal(item)" class="clickable-row">
+                  <tr v-for="item in historyList" :key="item.id" @click="openImageModal(item)" class="clickable-row">
                     <td class="col-id font-mono">#{{ item.id }}</td>
                     <td class="col-time">{{ item.timestamp }}</td>
                     <td class="col-location">
@@ -220,8 +220,14 @@ const isLoading = ref(false);
 const currentPage = ref(1);
 const itemsPerPage = ref(10);
 
+// Backend stats and pagination metadata
+const totalFilteredCount = ref(0);
+const totalDbCount = ref(0);
+const roomCounts = ref({ 1: 0, 2: 0, 3: 0, 4: 0 });
+const dateCounts = ref({});
+
 const openImageModal = (item) => {
-  store.activeModalBall = item;
+  store.showBallDetail(item);
 };
 
 // Filter states
@@ -354,7 +360,8 @@ const updateCharts = () => {
   }
 };
 
-watch([selectedDate, historyList], () => {
+// Watch for statistics data updates to refresh charts
+watch([roomCounts, dateCounts], () => {
   nextTick(() => {
     if (!roomChart && !trendChart) {
       initCharts();
@@ -367,11 +374,21 @@ watch([selectedDate, historyList], () => {
 const fetchHistory = async () => {
   isLoading.value = true;
   try {
-    const response = await fetch(`http://${window.location.hostname}:8000/api/broken_ball/`);
+    const params = new URLSearchParams({
+      page: currentPage.value.toString(),
+      limit: itemsPerPage.value.toString(),
+      room: selectedRoom.value,
+    });
+    if (selectedDate.value) {
+      params.append('date', selectedDate.value);
+    }
+    
+    const response = await fetch(`http://${window.location.hostname}:8000/api/broken_ball/?${params.toString()}`);
     if (response.ok) {
       const result = await response.json();
       if (result.status === 'success') {
-        historyList.value = result.data;
+        historyList.value = result.data.items;
+        totalFilteredCount.value = result.data.total_count;
       }
     } else {
       console.error('Failed to fetch history');
@@ -380,6 +397,29 @@ const fetchHistory = async () => {
     console.error('Error fetching history:', error);
   } finally {
     isLoading.value = false;
+  }
+};
+
+const fetchStats = async () => {
+  try {
+    const params = new URLSearchParams();
+    if (selectedDate.value) {
+      params.append('date', selectedDate.value);
+    }
+    
+    const response = await fetch(`http://${window.location.hostname}:8000/api/broken_ball/stats?${params.toString()}`);
+    if (response.ok) {
+      const result = await response.json();
+      if (result.status === 'success') {
+        totalDbCount.value = result.data.total_count;
+        roomCounts.value = result.data.room_counts;
+        dateCounts.value = result.data.date_counts;
+      }
+    } else {
+      console.error('Failed to fetch stats');
+    }
+  } catch (error) {
+    console.error('Error fetching stats:', error);
   }
 };
 
@@ -393,8 +433,9 @@ const deleteItem = async (id) => {
     if (response.ok) {
       const result = await response.json();
       if (result.status === 'success') {
-        // Smoothly delete from local state
-        historyList.value = historyList.value.filter(item => item.id !== id);
+        // Refetch stats and history to stay in sync
+        await fetchStats();
+        await fetchHistory();
       }
     } else {
       console.error('Failed to delete item');
@@ -437,76 +478,36 @@ const getRoomName = (location) => {
   }
 };
 
-const dateFilteredHistoryList = computed(() => {
-  if (!selectedDate.value) return historyList.value;
-  return historyList.value.filter(item => {
-    const itemDate = item.timestamp.split(' ')[0];
-    return itemDate === selectedDate.value;
-  });
-});
-
-// Computeds for Filtering
-const filteredHistoryList = computed(() => {
-  return historyList.value.filter(item => {
-    // 1. Date Filter
-    if (selectedDate.value) {
-      const itemDate = item.timestamp.split(' ')[0]; // Extract "YYYY-MM-DD"
-      if (itemDate !== selectedDate.value) return false;
-    }
-    // 2. Room Filter
-    if (selectedRoom.value !== 'all') {
-      const r = getRoomNumber(item.location);
-      if (String(r) !== selectedRoom.value) return false;
-    }
-    return true;
-  });
-});
-
-const totalPages = computed(() => {
-  return Math.ceil(filteredHistoryList.value.length / itemsPerPage.value) || 1;
-});
-
-const paginatedHistoryList = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage.value;
-  const end = start + itemsPerPage.value;
-  return filteredHistoryList.value.slice(start, end);
-});
-
-watch([selectedDate, selectedRoom], () => {
+// Watch for filter changes to reset page and refetch everything
+watch([selectedRoom, selectedDate], () => {
   currentPage.value = 1;
+  fetchStats();
+  fetchHistory();
 });
 
+// Watch for page navigation to update page items
+watch(currentPage, () => {
+  fetchHistory();
+});
+
+// Total count computed property
+const totalCount = computed(() => totalDbCount.value);
+
+// Computed property to calculate total pages
+const totalPages = computed(() => {
+  return Math.ceil(totalFilteredCount.value / itemsPerPage.value) || 1;
+});
+
+// Watch totalPages to make sure currentPage stays in range
 watch(totalPages, (newVal) => {
   if (currentPage.value > newVal) {
     currentPage.value = newVal;
   }
 });
 
-
-
-const getRoomPercentage = (roomNum) => {
-  const currentTotal = dateFilteredHistoryList.value.length;
-  if (currentTotal === 0) return 0;
-  const count = roomStats.value.counts[roomNum] || 0;
-  return Math.round((count / currentTotal) * 100);
-};
-
-// Computeds for Global Statistics (Calculated from full history list)
-const totalCount = computed(() => historyList.value.length);
-
+// Computeds for Global Statistics (Formatted for UI binding)
 const roomStats = computed(() => {
-  const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
-  let unknown = 0;
-  
-  dateFilteredHistoryList.value.forEach(item => {
-    const r = getRoomNumber(item.location);
-    if (r >= 1 && r <= 4) {
-      counts[r]++;
-    } else {
-      unknown++;
-    }
-  });
-
+  const counts = roomCounts.value;
   let maxRoomCount = 0;
   let mostActiveRoom = '없음';
   Object.keys(counts).forEach(k => {
@@ -516,17 +517,12 @@ const roomStats = computed(() => {
     }
   });
 
-  return { counts, unknown, mostActiveRoom };
+  return { counts, mostActiveRoom };
 });
 
 const dateStats = computed(() => {
-  const counts = {};
+  const counts = dateCounts.value;
   
-  historyList.value.forEach(item => {
-    const dateStr = item.timestamp.split(' ')[0];
-    counts[dateStr] = (counts[dateStr] || 0) + 1;
-  });
-
   // Chronological sort
   const sortedDates = Object.keys(counts).sort((a, b) => new Date(a) - new Date(b));
 
@@ -553,6 +549,7 @@ const dateStats = computed(() => {
 });
 
 onMounted(() => {
+  fetchStats();
   fetchHistory();
 });
 </script>

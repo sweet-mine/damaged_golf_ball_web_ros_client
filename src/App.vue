@@ -110,7 +110,7 @@ const handleLogout = () => {
 
 const handleNotificationClick = () => {
   if (store.brokenBallNotification) {
-    store.activeModalBall = store.brokenBallNotification;
+    store.showBallDetail(store.brokenBallNotification);
     store.brokenBallNotification = null;
   }
 };

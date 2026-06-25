@@ -271,6 +271,34 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     }
   };
 
+  const showBallDetail = async (ball) => {
+    if (!ball) {
+      activeModalBall.value = null;
+      return;
+    }
+    
+    // Set metadata first so modal opens instantly
+    activeModalBall.value = { ...ball };
+    
+    // If there is no image (e.g. from the paginated list), fetch on-demand
+    if (!ball.image) {
+      try {
+        const res = await fetch(`http://${window.location.hostname}:8000/api/broken_ball/${ball.id}`);
+        if (res.ok) {
+          const result = await res.json();
+          if (result.status === 'success' && result.data.image) {
+            // Check if the user hasn't closed or switched the modal to another ball
+            if (activeModalBall.value && activeModalBall.value.id === ball.id) {
+              activeModalBall.value.image = result.data.image;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch image on-demand:', e);
+      }
+    }
+  };
+
   return {
     cmdVel,
     batteryState,
@@ -291,6 +319,7 @@ export const useGolfbotStore = defineStore('golfbot', () => {
     clearAgentHistory,
     login,
     logout,
-    validateTokenOnServer
+    validateTokenOnServer,
+    showBallDetail
   };
 });
